@@ -1,0 +1,442 @@
+{
+  "name": "AI Email Assistant",
+  "nodes": [
+    {
+      "parameters": {
+        "pollTimes": {
+          "item": [
+            {
+              "mode": "everyX",
+              "value": 5,
+              "unit": "minutes"
+            }
+          ]
+        },
+        "filters": {
+          "readStatus": "unread",
+          "labelIds": ["INBOX"]
+        },
+        "simple": false,
+        "options": {}
+      },
+      "name": "Gmail Trigger",
+      "type": "n8n-nodes-base.gmailTrigger",
+      "typeVersion": 1,
+      "position": [250, 300],
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "REPLACE_WITH_YOUR_CREDENTIAL_ID",
+          "name": "Gmail OAuth2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "markAsRead",
+        "messageId": "={{ $json.id }}"
+      },
+      "name": "Mark as Read",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2,
+      "position": [450, 300],
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "REPLACE_WITH_YOUR_CREDENTIAL_ID",
+          "name": "Gmail OAuth2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// ============================================================\n// Email Preprocessor\n// Strips HTML, truncates body, extracts clean metadata\n// ============================================================\n\nconst email = $input.item.json;\n\nfunction stripHtml(html) {\n  return (html || '')\n    .replace(/<style[^>]*>[\\s\\S]*?<\\/style>/gi, '')\n    .replace(/<script[^>]*>[\\s\\S]*?<\\/script>/gi, '')\n    .replace(/<[^>]+>/g, ' ')\n    .replace(/&nbsp;/g, ' ')\n    .replace(/&amp;/g, '&')\n    .replace(/&lt;/g, '<')\n    .replace(/&gt;/g, '>')\n    .replace(/\\s+/g, ' ')\n    .trim();\n}\n\nfunction parseEmail(raw) {\n  const match = (raw || '').match(/<([^>]+)>/);\n  return match ? match[1] : (raw || '');\n}\n\nconst rawBody = email.text || email.html || email.snippet || '';\nconst cleanBody = stripHtml(rawBody).substring(0, 1500);\n\nreturn [{\n  json: {\n    messageId: email.id,\n    threadId: email.threadId,\n    from: email.from,\n    fromEmail: parseEmail(email.from),\n    to: email.to,\n    subject: email.subject || '(no subject)',\n    body: cleanBody,\n    snippet: email.snippet || '',\n    date: email.date,\n    receivedAt: new Date().toISOString()\n  }\n}];"
+      },
+      "name": "Preprocess Email",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [650, 300]
+    },
+    {
+      "parameters": {
+        "model": "gpt-4o",
+        "messages": {
+          "values": [
+            {
+              "role": "system",
+              "content": "You are an email classification assistant for a SaaS startup.\n\nClassify the incoming email into exactly one category:\n- urgent: needs response within 1 hour (outages, legal, angry enterprise customer threatening churn)\n- support: customer needs help (setup, bugs, how-to, billing)\n- sales: prospect or partner interest (pricing, demo request, partnership)\n- spam: no action needed (newsletters, marketing, automated notifications)\n\nAlso extract:\n- sentiment: positive | neutral | negative\n- summary: 1-2 sentences describing the core message\n- suggested_action: one concrete action the team should take\n- confidence: 0.0 to 1.0\n\nRespond ONLY with valid JSON. No preamble. Schema:\n{\"category\":\"urgent|support|sales|spam\",\"sentiment\":\"positive|neutral|negative\",\"summary\":\"string\",\"suggested_action\":\"string\",\"confidence\":0.95}"
+            },
+            {
+              "role": "user",
+              "content": "From: {{ $json.from }}\nSubject: {{ $json.subject }}\nBody: {{ $json.body }}"
+            }
+          ]
+        },
+        "options": {
+          "temperature": 0.1,
+          "responseFormat": "json_object"
+        }
+      },
+      "name": "OpenAI Classify",
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1,
+      "position": [850, 300],
+      "credentials": {
+        "openAiApi": {
+          "id": "REPLACE_WITH_YOUR_CREDENTIAL_ID",
+          "name": "OpenAI API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// ============================================================\n// Parse and validate OpenAI JSON response\n// Merges classification with upstream email data\n// ============================================================\n\nconst raw = $input.item.json.choices?.[0]?.message?.content || '';\n\n// Strip markdown code fences if present\nconst cleaned = raw\n  .replace(/```json\\n?/g, '')\n  .replace(/```\\n?/g, '')\n  .trim();\n\nlet parsed;\ntry {\n  parsed = JSON.parse(cleaned);\n} catch (e) {\n  // Fallback on parse failure — route to manual review\n  parsed = {\n    category: 'unknown',\n    sentiment: 'neutral',\n    summary: 'AI parsing failed — needs manual review',\n    suggested_action: 'Review email manually in Gmail',\n    confidence: 0\n  };\n}\n\n// Get upstream data from Preprocess node\n// n8n passes the full chain — we need to grab original email data\nconst upstream = $('Preprocess Email').item.json;\n\nreturn [{\n  json: {\n    // Email metadata\n    messageId: upstream.messageId,\n    threadId: upstream.threadId,\n    from: upstream.from,\n    fromEmail: upstream.fromEmail,\n    subject: upstream.subject,\n    body: upstream.body,\n    date: upstream.date,\n    receivedAt: upstream.receivedAt,\n    // AI classification\n    category: parsed.category || 'unknown',\n    sentiment: parsed.sentiment || 'neutral',\n    summary: parsed.summary || '',\n    suggested_action: parsed.suggested_action || '',\n    confidence: parsed.confidence || 0,\n    // Meta\n    processedAt: new Date().toISOString()\n  }\n}];"
+      },
+      "name": "Parse AI Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1050, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.confidence }}",
+              "rightValue": 0.5,
+              "operator": {
+                "type": "number",
+                "operation": "gte"
+              }
+            }
+          ]
+        }
+      },
+      "name": "Confidence Check",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1250, 300]
+    },
+    {
+      "parameters": {
+        "channel": "#email-manual-review",
+        "text": ":question: *Low Confidence Classification — Manual Review Needed*\n\n*From:* {{ $json.from }}\n*Subject:* {{ $json.subject }}\n*AI Category:* {{ $json.category }} (confidence: {{ $json.confidence }})\n*Summary:* {{ $json.summary }}\n\nPlease review and classify manually.",
+        "otherOptions": {}
+      },
+      "name": "Slack Manual Review",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2,
+      "position": [1450, 480],
+      "credentials": {
+        "slackApi": {
+          "id": "REPLACE_WITH_YOUR_CREDENTIAL_ID",
+          "name": "Slack API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "rules",
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.category }}",
+                    "rightValue": "urgent",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              },
+              "renameOutput": true,
+              "outputKey": "urgent"
+            },
+            {
+              "conditions": {
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.category }}",
+                    "rightValue": "support",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              },
+              "renameOutput": true,
+              "outputKey": "support"
+            },
+            {
+              "conditions": {
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.category }}",
+                    "rightValue": "sales",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              },
+              "renameOutput": true,
+              "outputKey": "sales"
+            },
+            {
+              "conditions": {
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.category }}",
+                    "rightValue": "spam",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              },
+              "renameOutput": true,
+              "outputKey": "spam"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "name": "Route by Category",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [1450, 300]
+    },
+    {
+      "parameters": {
+        "channel": "#urgent-inbox",
+        "text": ":rotating_light: *URGENT EMAIL*\n\n*From:* {{ $json.from }}\n*Subject:* {{ $json.subject }}\n*Sentiment:* {{ $json.sentiment }}\n*Summary:* {{ $json.summary }}\n*Recommended action:* {{ $json.suggested_action }}\n*Received:* {{ $json.date }}\n\n:point_right: Reply within 1 hour",
+        "otherOptions": {}
+      },
+      "name": "Slack Urgent Alert",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2,
+      "position": [1700, 160],
+      "credentials": {
+        "slackApi": {
+          "id": "REPLACE_WITH_YOUR_CREDENTIAL_ID",
+          "name": "Slack API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "model": "gpt-4o",
+        "messages": {
+          "values": [
+            {
+              "role": "system",
+              "content": "You are a friendly, professional customer support agent for [Company Name], a SaaS platform.\n\nWrite a helpful reply to the customer's email. Rules:\n1. Address them by first name if available\n2. Acknowledge their specific issue — show you read it\n3. Provide a clear, actionable solution or next step\n4. Be concise — 3-5 sentences max\n5. End with an open offer to help further\n6. Sign off as 'The [Company] Support Team'\n\nTone: Warm but professional. Never robotic. Never over-apologetic.\nOutput the reply text only. No subject line, no metadata."
+            },
+            {
+              "role": "user",
+              "content": "Customer email:\nFrom: {{ $json.from }}\nSubject: {{ $json.subject }}\nBody: {{ $json.body }}\n\nIssue summary: {{ $json.summary }}"
+            }
+          ]
+        },
+        "options": {
+          "temperature": 0.7
+        }
+      },
+      "name": "Generate Draft Reply",
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1,
+      "position": [1700, 300],
+      "credentials": {
+        "openAiApi": {
+          "id": "REPLACE_WITH_YOUR_CREDENTIAL_ID",
+          "name": "OpenAI API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "reply",
+        "messageId": "={{ $('Parse AI Response').item.json.messageId }}",
+        "message": "={{ $json.choices[0].message.content }}",
+        "options": {
+          "sendReply": false
+        }
+      },
+      "name": "Save Gmail Draft",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2,
+      "position": [1950, 300],
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "REPLACE_WITH_YOUR_CREDENTIAL_ID",
+          "name": "Gmail OAuth2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "value": "REPLACE_WITH_YOUR_SPREADSHEET_ID"
+        },
+        "sheetName": {
+          "value": "Sales Leads"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Date": "={{ $json.date }}",
+            "From": "={{ $json.from }}",
+            "Email": "={{ $json.fromEmail }}",
+            "Subject": "={{ $json.subject }}",
+            "Summary": "={{ $json.summary }}",
+            "Action": "={{ $json.suggested_action }}",
+            "Sentiment": "={{ $json.sentiment }}",
+            "Source": "Email Assistant"
+          }
+        }
+      },
+      "name": "Log Sales Lead",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [1700, 440],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "REPLACE_WITH_YOUR_CREDENTIAL_ID",
+          "name": "Google Sheets OAuth2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "addLabels",
+        "messageId": "={{ $json.messageId }}",
+        "labelIds": ["Label_AI_Spam"]
+      },
+      "name": "Label as Spam",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2,
+      "position": [1700, 580],
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "REPLACE_WITH_YOUR_CREDENTIAL_ID",
+          "name": "Gmail OAuth2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "archive",
+        "messageId": "={{ $json.messageId }}"
+      },
+      "name": "Archive Spam",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2,
+      "position": [1950, 580],
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "REPLACE_WITH_YOUR_CREDENTIAL_ID",
+          "name": "Gmail OAuth2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "value": "REPLACE_WITH_YOUR_SPREADSHEET_ID"
+        },
+        "sheetName": {
+          "value": "Email Log"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Timestamp": "={{ $json.processedAt }}",
+            "Date": "={{ $json.date }}",
+            "Message ID": "={{ $json.messageId }}",
+            "From": "={{ $json.from }}",
+            "Subject": "={{ $json.subject }}",
+            "Category": "={{ $json.category }}",
+            "Sentiment": "={{ $json.sentiment }}",
+            "Summary": "={{ $json.summary }}",
+            "Suggested Action": "={{ $json.suggested_action }}",
+            "Confidence": "={{ $json.confidence }}"
+          }
+        }
+      },
+      "name": "Log to Google Sheets",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [2200, 300],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "REPLACE_WITH_YOUR_CREDENTIAL_ID",
+          "name": "Google Sheets OAuth2"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Gmail Trigger": {
+      "main": [[{ "node": "Mark as Read", "type": "main", "index": 0 }]]
+    },
+    "Mark as Read": {
+      "main": [[{ "node": "Preprocess Email", "type": "main", "index": 0 }]]
+    },
+    "Preprocess Email": {
+      "main": [[{ "node": "OpenAI Classify", "type": "main", "index": 0 }]]
+    },
+    "OpenAI Classify": {
+      "main": [[{ "node": "Parse AI Response", "type": "main", "index": 0 }]]
+    },
+    "Parse AI Response": {
+      "main": [[{ "node": "Confidence Check", "type": "main", "index": 0 }]]
+    },
+    "Confidence Check": {
+      "main": [
+        [{ "node": "Route by Category", "type": "main", "index": 0 }],
+        [{ "node": "Slack Manual Review", "type": "main", "index": 0 }]
+      ]
+    },
+    "Route by Category": {
+      "urgent": [[{ "node": "Slack Urgent Alert", "type": "main", "index": 0 }]],
+      "support": [[{ "node": "Generate Draft Reply", "type": "main", "index": 0 }]],
+      "sales": [[{ "node": "Log Sales Lead", "type": "main", "index": 0 }]],
+      "spam": [[{ "node": "Label as Spam", "type": "main", "index": 0 }]]
+    },
+    "Generate Draft Reply": {
+      "main": [[{ "node": "Save Gmail Draft", "type": "main", "index": 0 }]]
+    },
+    "Label as Spam": {
+      "main": [[{ "node": "Archive Spam", "type": "main", "index": 0 }]]
+    },
+    "Slack Urgent Alert": {
+      "main": [[{ "node": "Log to Google Sheets", "type": "main", "index": 0 }]]
+    },
+    "Save Gmail Draft": {
+      "main": [[{ "node": "Log to Google Sheets", "type": "main", "index": 0 }]]
+    },
+    "Log Sales Lead": {
+      "main": [[{ "node": "Log to Google Sheets", "type": "main", "index": 0 }]]
+    },
+    "Archive Spam": {
+      "main": [[{ "node": "Log to Google Sheets", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "errorWorkflow": "REPLACE_WITH_ERROR_WORKFLOW_ID"
+  },
+  "staticData": null,
+  "tags": ["email", "ai", "automation"]
+}

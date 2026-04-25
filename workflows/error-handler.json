@@ -1,0 +1,85 @@
+{
+  "name": "Error Handler",
+  "nodes": [
+    {
+      "parameters": {},
+      "name": "Error Trigger",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [250, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// ============================================================\n// Error Formatter\n// Extracts useful info from the n8n error object\n// ============================================================\n\nconst err = $input.item.json;\n\nconst workflowName = err.workflow?.name || 'Unknown Workflow';\nconst executionId  = err.execution?.id || 'N/A';\nconst lastNode     = err.execution?.lastNodeExecuted || 'Unknown Node';\nconst errorMsg     = err.execution?.error?.message || 'No error message';\nconst errorStack   = err.execution?.error?.stack || '';\nconst timestamp    = new Date().toISOString();\n\n// Determine severity\nlet severity = 'WARNING';\nif (errorMsg.toLowerCase().includes('rate limit')) severity = 'INFO';\nif (errorMsg.toLowerCase().includes('unauthorized')) severity = 'CRITICAL';\nif (errorMsg.toLowerCase().includes('quota')) severity = 'CRITICAL';\n\nreturn [{\n  json: {\n    workflowName,\n    executionId,\n    lastNode,\n    errorMsg,\n    errorStack: errorStack.substring(0, 500),\n    severity,\n    timestamp\n  }\n}];"
+      },
+      "name": "Format Error",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [450, 300]
+    },
+    {
+      "parameters": {
+        "channel": "#n8n-errors",
+        "text": ":x: *n8n Workflow Error — {{ $json.severity }}*\n\n*Workflow:* {{ $json.workflowName }}\n*Failed Node:* {{ $json.lastNode }}\n*Execution ID:* {{ $json.executionId }}\n*Error:* `{{ $json.errorMsg }}`\n*Time:* {{ $json.timestamp }}\n\n:wrench: Fix it at: https://your-n8n-url.com/execution/{{ $json.executionId }}",
+        "otherOptions": {}
+      },
+      "name": "Slack Error Alert",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2,
+      "position": [650, 300],
+      "credentials": {
+        "slackApi": {
+          "id": "REPLACE_WITH_YOUR_CREDENTIAL_ID",
+          "name": "Slack API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "value": "REPLACE_WITH_YOUR_SPREADSHEET_ID"
+        },
+        "sheetName": {
+          "value": "Error Log"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Timestamp": "={{ $json.timestamp }}",
+            "Workflow": "={{ $json.workflowName }}",
+            "Node": "={{ $json.lastNode }}",
+            "Error": "={{ $json.errorMsg }}",
+            "Severity": "={{ $json.severity }}",
+            "Execution ID": "={{ $json.executionId }}"
+          }
+        }
+      },
+      "name": "Log Error to Sheets",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [850, 300],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "REPLACE_WITH_YOUR_CREDENTIAL_ID",
+          "name": "Google Sheets OAuth2"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Error Trigger": {
+      "main": [[{ "node": "Format Error", "type": "main", "index": 0 }]]
+    },
+    "Format Error": {
+      "main": [[{ "node": "Slack Error Alert", "type": "main", "index": 0 }]]
+    },
+    "Slack Error Alert": {
+      "main": [[{ "node": "Log Error to Sheets", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "tags": ["error-handling", "monitoring"]
+}

@@ -1,0 +1,89 @@
+version: "3.8"
+
+# ============================================================
+# AI Email Assistant — Docker Compose
+# Services: n8n + PostgreSQL
+# Usage: docker compose up -d
+# ============================================================
+
+services:
+
+  n8n:
+    image: n8nio/n8n:latest
+    container_name: n8n
+    restart: always
+    ports:
+      - "5678:5678"
+    environment:
+      # --- Auth ---
+      - N8N_BASIC_AUTH_ACTIVE=true
+      - N8N_BASIC_AUTH_USER=${N8N_USER}
+      - N8N_BASIC_AUTH_PASSWORD=${N8N_PASSWORD}
+
+      # --- Encryption (generate with: openssl rand -hex 32) ---
+      - N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY}
+
+      # --- Public URL (required for webhooks & OAuth callbacks) ---
+      - WEBHOOK_URL=${WEBHOOK_URL}
+      - N8N_EDITOR_BASE_URL=${WEBHOOK_URL}
+
+      # --- Database ---
+      - DB_TYPE=postgresdb
+      - DB_POSTGRESDB_HOST=postgres
+      - DB_POSTGRESDB_PORT=5432
+      - DB_POSTGRESDB_DATABASE=n8n
+      - DB_POSTGRESDB_USER=${DB_USER}
+      - DB_POSTGRESDB_PASSWORD=${DB_PASSWORD}
+      - DB_POSTGRESDB_SCHEMA=public
+
+      # --- Execution settings ---
+      - EXECUTIONS_DATA_PRUNE=true
+      - EXECUTIONS_DATA_MAX_AGE=168        # Keep 7 days of execution history
+      - EXECUTIONS_DATA_PRUNE_MAX_COUNT=1000
+
+      # --- Timezone ---
+      - GENERIC_TIMEZONE=Asia/Kolkata      # Change to your timezone
+
+      # --- Misc ---
+      - N8N_HIRING_BANNER_ENABLED=false
+      - N8N_DIAGNOSTICS_ENABLED=false
+      - N8N_VERSION_NOTIFICATIONS_ENABLED=true
+
+    volumes:
+      - n8n-data:/home/node/.n8n
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+    networks:
+      - n8n-network
+
+  postgres:
+    image: postgres:15-alpine
+    container_name: n8n-postgres
+    restart: always
+    environment:
+      - POSTGRES_USER=${DB_USER}
+      - POSTGRES_PASSWORD=${DB_PASSWORD}
+      - POSTGRES_DB=n8n
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d n8n"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    networks:
+      - n8n-network
+
+volumes:
+  n8n-data:
+    driver: local
+  postgres-data:
+    driver: local
+
+networks:
+  n8n-network:
+    driver: bridge

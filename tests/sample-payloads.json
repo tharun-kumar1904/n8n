@@ -1,0 +1,126 @@
+{
+  "_readme": "Use these payloads to test the workflow via n8n's manual trigger. In the workflow canvas, click the Gmail Trigger node → 'Listen for test event', then paste one of these objects. Check each branch fires as expected.",
+
+  "test_cases": [
+
+    {
+      "name": "Test 1 — Urgent: Production outage",
+      "expected": {
+        "category": "urgent",
+        "sentiment": "negative",
+        "confidence_min": 0.85,
+        "action": "Slack urgent alert fires"
+      },
+      "payload": {
+        "id": "msg_test_001",
+        "threadId": "thread_001",
+        "from": "Priya Sharma <priya.sharma@bigenterprise.com>",
+        "to": "support@yourcompany.com",
+        "subject": "URGENT: Your API has been returning 503 errors for 30 minutes",
+        "text": "Your API has been down since 2:15 PM IST. We're seeing 503 errors on every call to /v1/process. This is impacting 8,000 active users on our platform. We need someone on a call in the next 30 minutes or we will be switching to an alternative provider. This is completely unacceptable for an enterprise contract.",
+        "snippet": "Your API has been down since 2:15 PM IST. We're seeing 503 errors on every call...",
+        "date": "2025-04-25T08:45:00Z"
+      }
+    },
+
+    {
+      "name": "Test 2 — Support: Login issue",
+      "expected": {
+        "category": "support",
+        "sentiment": "negative",
+        "confidence_min": 0.80,
+        "action": "AI draft reply created, saved as Gmail draft"
+      },
+      "payload": {
+        "id": "msg_test_002",
+        "threadId": "thread_002",
+        "from": "Alice Johnson <alice.j@customer.com>",
+        "to": "support@yourcompany.com",
+        "subject": "Can't login to my account",
+        "text": "Hi, I've been trying to log into my account for the past hour and I keep getting an 'invalid credentials' error. I already reset my password twice using the reset link and it's still not working. I have an important report due today and I can't access any of my data. My account email is alice.j@customer.com. Please help ASAP.",
+        "snippet": "Hi, I've been trying to log into my account for the past hour...",
+        "date": "2025-04-25T09:10:00Z"
+      }
+    },
+
+    {
+      "name": "Test 3 — Support: Feature question (positive sentiment)",
+      "expected": {
+        "category": "support",
+        "sentiment": "positive",
+        "confidence_min": 0.75,
+        "action": "AI draft reply created"
+      },
+      "payload": {
+        "id": "msg_test_003",
+        "threadId": "thread_003",
+        "from": "Marcus Lee <marcus@startup.co>",
+        "to": "support@yourcompany.com",
+        "subject": "Question about bulk export",
+        "text": "Hi team! Love the product — we've been using it for 3 months and it's saved us so much time. Quick question: is there a way to bulk export all our data to CSV? I can only find the export button on individual records. Thanks in advance!",
+        "snippet": "Hi team! Love the product — quick question about bulk export...",
+        "date": "2025-04-25T10:00:00Z"
+      }
+    },
+
+    {
+      "name": "Test 4 — Sales: Pricing inquiry from prospect",
+      "expected": {
+        "category": "sales",
+        "sentiment": "positive",
+        "confidence_min": 0.85,
+        "action": "Lead logged to Google Sheets"
+      },
+      "payload": {
+        "id": "msg_test_004",
+        "threadId": "thread_004",
+        "from": "Raj Patel <raj@growthstartup.io>",
+        "to": "hello@yourcompany.com",
+        "subject": "Interested in Enterprise plan for our team of 45",
+        "text": "Hello, we're a 45-person startup evaluating workflow automation tools. We saw your product mentioned in a review and the features look like a great fit. Could you send over Enterprise pricing? We're looking to onboard roughly 30 seats and would love a demo call this week if possible. We have budget approved and are looking to move quickly.",
+        "snippet": "Hello, we're a 45-person startup evaluating workflow automation tools...",
+        "date": "2025-04-25T11:00:00Z"
+      }
+    },
+
+    {
+      "name": "Test 5 — Spam: Newsletter",
+      "expected": {
+        "category": "spam",
+        "sentiment": "neutral",
+        "confidence_min": 0.90,
+        "action": "Gmail labelled AI-Spam and archived"
+      },
+      "payload": {
+        "id": "msg_test_005",
+        "threadId": "thread_005",
+        "from": "The SaaS Weekly <newsletter@saasweekly.com>",
+        "to": "team@yourcompany.com",
+        "subject": "This week in SaaS: top 10 tools, funding rounds, and growth hacks",
+        "text": "Unsubscribe | View in browser | Manage preferences\n\nWelcome to this week's SaaS Weekly! Here's what's been happening:\n\n1. Top 10 tools for remote teams\n2. $50M Series B for TaskFlow\n3. How Notion grew to 10M users\n\nClick here to read the full issue. See you next week!",
+        "snippet": "This week's roundup: top tools, funding news, and growth hacks...",
+        "date": "2025-04-25T07:00:00Z"
+      }
+    },
+
+    {
+      "name": "Test 6 — Edge case: Ambiguous / low confidence",
+      "expected": {
+        "category": "support OR sales",
+        "confidence_max": 0.65,
+        "action": "Routed to Slack manual review channel"
+      },
+      "payload": {
+        "id": "msg_test_006",
+        "threadId": "thread_006",
+        "from": "someone@gmail.com",
+        "to": "hello@yourcompany.com",
+        "subject": "Hi",
+        "text": "Hi, I wanted to reach out. Can we talk?",
+        "snippet": "Hi, I wanted to reach out. Can we talk?",
+        "date": "2025-04-25T12:00:00Z"
+      }
+    }
+
+  ]
+}
