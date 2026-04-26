@@ -1,0 +1,200 @@
+{
+  "name": "Final Master AI Email Assistant",
+  "nodes": [
+    {
+      "parameters": {
+        "pollTimes": {
+          "item": [
+            {
+              "mode": "everyX",
+              "value": 5,
+              "unit": "minutes"
+            }
+          ]
+        },
+        "filters": {
+          "readStatus": "unread"
+        },
+        "options": {}
+      },
+      "name": "Gmail Trigger",
+      "type": "n8n-nodes-base.gmailTrigger",
+      "typeVersion": 1,
+      "position": [100, 300]
+    },
+    {
+      "parameters": {
+        "operation": "markAsRead",
+        "messageId": "={{ $json.id }}"
+      },
+      "name": "Mark as Read",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2,
+      "position": [300, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const email = $input.item.json;\nreturn [{\n  json: {\n    messageId: email.id,\n    from: email.from,\n    subject: email.subject || '(no subject)',\n    body: (email.text || email.snippet || '').substring(0, 2000),\n    date: email.date\n  }\n}];"
+      },
+      "name": "Preprocess Email",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [500, 300]
+    },
+    {
+      "parameters": {
+        "model": "llama-3.3-70b-versatile",
+        "messages": {
+          "values": [
+            {
+              "role": "system",
+              "content": "You are an email classification assistant. \n\nClassify into: urgent, support, sales, spam.\nExtract: sentiment, summary, suggested_action, confidence.\n\nYOU MUST RESPOND ONLY WITH A RAW JSON OBJECT STARTING WITH { AND ENDING WITH }. NO TEXT.\n\nSchema: {\"category\":\"urgent|support|sales|spam\",\"sentiment\":\"positive|neutral|negative\",\"summary\":\"string\",\"suggested_action\":\"string\",\"confidence\":0.95}"
+            },
+            {
+              "role": "user",
+              "content": "From: {{ $json.from }}\nSubject: {{ $json.subject }}\nBody: {{ $json.body }}"
+            }
+          ]
+        },
+        "options": {
+          "temperature": 0.1
+        }
+      },
+      "name": "Groq Classify",
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1,
+      "position": [700, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const raw = $input.item.json.choices[0].message.content;\nconst parsed = JSON.parse(raw.replace(/```json/g, '').replace(/```/g, '').trim());\nconst upstream = $('Preprocess Email').item.json;\nreturn [{\n  json: {\n    ...upstream,\n    ...parsed,\n    processedAt: new Date().toISOString()\n  }\n}];"
+      },
+      "name": "Parse AI Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [900, 300]
+    },
+    {
+      "parameters": {
+        "dataType": "string",
+        "value1": "={{ $json.category }}",
+        "rules": {
+          "rules": [
+            {
+              "value2": "urgent",
+              "output": 0
+            },
+            {
+              "value2": "support",
+              "output": 1
+            },
+            {
+              "value2": "sales",
+              "output": 2
+            },
+            {
+              "value2": "spam",
+              "output": 3
+            }
+          ]
+        },
+        "options": {
+          "ignoreCase": true
+        }
+      },
+      "name": "Route by Category",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [1100, 300]
+    },
+    {
+      "parameters": {
+        "resource": "databasePage",
+        "databaseId": {
+          "__rl": true,
+          "mode": "list",
+          "value": ""
+        },
+        "propertiesUi": {
+          "propertyValues": [
+            {
+              "key": "Subject",
+              "type": "title",
+              "title": "={{ $json.subject }}"
+            },
+            {
+              "key": "From",
+              "type": "richText",
+              "richText": "={{ $json.from }}"
+            },
+            {
+              "key": "Category",
+              "type": "select",
+              "select": "={{ $json.category }}"
+            },
+            {
+              "key": "Summary",
+              "type": "richText",
+              "richText": "={{ $json.summary }}"
+            }
+          ]
+        }
+      },
+      "name": "Notion Dashboard",
+      "type": "n8n-nodes-base.notion",
+      "typeVersion": 2,
+      "position": [1500, 100]
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "mode": "list",
+          "value": ""
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "list",
+          "value": "Email Log"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Subject": "={{ $json.subject }}",
+            "Category": "={{ $json.category }}",
+            "Summary": "={{ $json.summary }}"
+          }
+        }
+      },
+      "name": "Google Sheets Log",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [1500, 300]
+    }
+  ],
+  "connections": {
+    "Gmail Trigger": {
+      "main": [[{ "node": "Mark as Read", "type": "main", "index": 0 }]]
+    },
+    "Mark as Read": {
+      "main": [[{ "node": "Preprocess Email", "type": "main", "index": 0 }]]
+    },
+    "Preprocess Email": {
+      "main": [[{ "node": "Groq Classify", "type": "main", "index": 0 }]]
+    },
+    "Groq Classify": {
+      "main": [[{ "node": "Parse AI Response", "type": "main", "index": 0 }]]
+    },
+    "Parse AI Response": {
+      "main": [[{ "node": "Route by Category", "type": "main", "index": 0 }]]
+    },
+    "Route by Category": {
+      "main": [
+        [{ "node": "Google Sheets Log", "type": "main", "index": 0 }, { "node": "Notion Dashboard", "type": "main", "index": 0 }],
+        [{ "node": "Google Sheets Log", "type": "main", "index": 0 }, { "node": "Notion Dashboard", "type": "main", "index": 0 }],
+        [{ "node": "Google Sheets Log", "type": "main", "index": 0 }, { "node": "Notion Dashboard", "type": "main", "index": 0 }],
+        [{ "node": "Google Sheets Log", "type": "main", "index": 0 }, { "node": "Notion Dashboard", "type": "main", "index": 0 }]
+      ]
+    }
+  }
+}
