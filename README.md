@@ -3,7 +3,7 @@
 > Automatically classifies, routes, and responds to emails using GPT-4o and n8n.
 
 ![n8n](https://img.shields.io/badge/n8n-workflow-orange)
-![OpenAI](https://img.shields.io/badge/OpenAI-GPT--4o-green)
+![Groq](https://img.shields.io/badge/Groq-Llama_3-blue)
 ![Docker](https://img.shields.io/badge/Docker-ready-blue)
 
 ---
@@ -11,7 +11,7 @@
 ## What it does
 
 - **Polls Gmail** every 5 minutes for new unread emails
-- **Classifies** each email into: `urgent` / `support` / `sales` / `spam` using GPT-4o
+- **Classifies** each email into: `urgent` / `support` / `sales` / `spam` using Groq's `llama-3.3-70b-versatile`
 - **Routes** to appropriate action:
   - Urgent → Slack alert to team
   - Support → AI-generated draft reply saved as Gmail draft
@@ -27,7 +27,7 @@
 | Layer | Technology |
 |---|---|
 | Workflow automation | n8n (self-hosted) |
-| AI classification + replies | OpenAI GPT-4o |
+| AI classification + replies | Groq API (Llama 3.3 70B) |
 | Email | Gmail API (OAuth2) |
 | Notifications | Slack API |
 | Storage | Google Sheets, Notion, PostgreSQL |
@@ -58,7 +58,7 @@ open http://localhost:5678
 ```
 
 Once inside n8n:
-1. Go to **Settings → Credentials** and add: Gmail OAuth2, OpenAI API, Slack API, Google Sheets
+1. Go to **Settings → Credentials** and add: Gmail OAuth2, OpenAI API (Configured for Groq), Slack API, Google Sheets
 2. Go to **Workflows → Import from file** → select `workflows/email-assistant.json`
 3. Import `workflows/error-handler.json` separately
 4. Re-assign credentials in each node
@@ -76,7 +76,7 @@ Gmail Trigger (every 5 min)
 Preprocessor (strip HTML, truncate)
        │
        ▼
-OpenAI GPT-4o (classify → JSON)
+Groq API (Llama3 classify → JSON)
        │
        ▼
 Switch Router
@@ -125,10 +125,10 @@ ai-email-assistant/
 ## What I Learned
 
 - **Idempotent workflow design** — added "mark as read" immediately after trigger to prevent duplicate processing on retries
-- **Prompt engineering for structured output** — using `response_format: json_object` in GPT-4o + a strict JSON schema in the system prompt reduced parsing failures from ~15% to <1%
+- **Prompt engineering for structured output** — using a strict JSON schema in the system prompt reduced parsing failures from ~15% to <1% when using Llama 3.3.
 - **n8n credential security** — all API keys stored in n8n's encrypted credential store, never in workflow JSON or environment variables
 - **Error boundaries** — the separate error-handler workflow catches failures across all nodes and notifies Slack, so nothing silently fails in production
-- **Cost optimisation** — truncating email bodies to 1,500 characters before sending to OpenAI reduced token usage by ~60% with no impact on classification accuracy
+- **Cost optimisation** — switching from OpenAI to Groq's extremely fast free tier reduced API costs to exactly $0 while processing emails 10x faster.
 
 ---
 
