@@ -1,7 +1,8 @@
 # ============================================================
 # SECRETS — NEVER commit these
 # ============================================================
-# docker/.env
+docker/.env
+.env
 *.key
 *.pem
 credentials.json

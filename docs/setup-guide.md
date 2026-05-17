@@ -10,7 +10,7 @@ Complete step-by-step instructions to get the AI Email Assistant running from sc
 |---|---|
 | Docker Desktop | [Install here](https://docs.docker.com/get-docker/) |
 | Gmail account | With API access enabled |
-| OpenAI account | Paid tier recommended ($5 credit minimum) |
+| Groq account | Free tier — [console.groq.com](https://console.groq.com) |
 | Slack workspace | You need permission to add apps |
 | Google account | For Sheets access |
 
@@ -19,8 +19,8 @@ Complete step-by-step instructions to get the AI Email Assistant running from sc
 ## Step 1 — Clone and configure
 
 ```bash
-git clone https://github.com/yourname/ai-email-assistant
-cd ai-email-assistant
+git clone https://github.com/tharun-kumar1904/n8n.git
+cd n8n
 
 # Create your environment file from the template
 cp docker/.env.example docker/.env
@@ -74,12 +74,20 @@ Open **http://localhost:5678** and log in with your `N8N_USER` / `N8N_PASSWORD`.
 
 ---
 
-## Step 4 — Add OpenAI credential
+## Step 4 — Add Groq API credential
 
-1. Go to [platform.openai.com/api-keys](https://platform.openai.com/api-keys)
-2. Create a new secret key
-3. In n8n: Settings → Credentials → Add Credential → **OpenAI API**
-4. Paste your API key → Save
+The workflow calls Groq's OpenAI-compatible API using HTTP Request nodes.
+
+1. Go to [console.groq.com](https://console.groq.com) → API Keys → Create
+2. Copy the API key
+3. In n8n: Settings → Credentials → Add Credential → **Header Auth**
+4. Configure:
+   - **Name:** `Groq API Key`
+   - **Header Name:** `Authorization`
+   - **Header Value:** `Bearer gsk_YOUR_GROQ_API_KEY_HERE`
+5. Save
+
+> **Why HTTP Header Auth?** The workflow uses `httpRequest` nodes (not OpenAI/LangChain nodes) to call Groq directly. This avoids compatibility issues with n8n's LangChain sub-nodes which are designed for AI Agent chains, not standalone use.
 
 ---
 
@@ -93,7 +101,7 @@ Open **http://localhost:5678** and log in with your `N8N_USER` / `N8N_PASSWORD`.
 4. **Install to Workspace** → copy the **Bot User OAuth Token**
 5. In n8n: Settings → Credentials → Add Credential → **Slack API**
 6. Paste the Bot Token → Save
-7. In Slack: go to `#urgent-inbox` and `#n8n-errors` channels → right-click → **Add Apps** → add your bot
+7. In Slack: invite the bot to your notification channel
 
 ---
 
@@ -119,17 +127,18 @@ Open **http://localhost:5678** and log in with your `N8N_USER` / `N8N_PASSWORD`.
 ## Step 7 — Import the workflows
 
 1. In n8n: Workflows → **Import from file**
-2. Select `workflows/email-assistant.json` → Import
+2. Select `workflows/email-assistant-final.json` → Import
 3. Repeat for `workflows/error-handler.json`
-4. Open the `AI Email Assistant` workflow
+4. Open the `AI Email Assistant — FINAL` workflow
 5. Click each node that shows a credential warning (yellow!) and re-select your credential from the dropdown
-6. In the Google Sheets nodes, update the `documentId` field with your Spreadsheet ID
+6. In the Google Sheets nodes, replace `REPLACE_WITH_YOUR_SPREADSHEET_ID` with your Spreadsheet ID
+7. In the Notion node, replace `REPLACE_WITH_YOUR_NOTION_DATABASE_ID` with your Notion database ID (optional)
 
 ---
 
 ## Step 8 — Connect the error handler
 
-1. Open the `AI Email Assistant` workflow settings (gear icon top-right)
+1. Open the `AI Email Assistant — FINAL` workflow settings (gear icon top-right)
 2. Under **Error Workflow**, select `Error Handler`
 3. Save
 
@@ -176,10 +185,14 @@ Check for missing environment variables or port conflicts.
 Make sure your redirect URI in Google Cloud Console exactly matches:
 `https://your-domain.com/rest/oauth2-credential/callback`
 
-**OpenAI returns empty/invalid JSON:**
-- Check your API key has credits
-- Make sure `response_format: json_object` is set in the OpenAI node
+**Groq API returns errors:**
+- Check your API key is valid at [console.groq.com](https://console.groq.com)
+- Make sure the HTTP Header Auth credential has `Authorization` as the header name
+- Verify the value starts with `Bearer ` (with a space)
 - The Parse AI Response node handles malformed output gracefully
+
+**"Node type not found" error when importing:**
+This means the workflow JSON references a node type that isn't installed. The fixed workflows use only built-in n8n nodes (`httpRequest`, `code`, `gmail`, etc.) so this should not happen.
 
 **Emails processed twice:**
 The "Mark as Read" node runs before processing. If you see duplicates, check that node is connected correctly and the credential is valid.

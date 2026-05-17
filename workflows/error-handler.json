@@ -3,6 +3,7 @@
   "nodes": [
     {
       "parameters": {},
+      "id": "c1b2c3d4-0001-4000-8000-000000000001",
       "name": "Error Trigger",
       "type": "n8n-nodes-base.errorTrigger",
       "typeVersion": 1,
@@ -12,6 +13,7 @@
       "parameters": {
         "jsCode": "// ============================================================\n// Error Formatter\n// Extracts useful info from the n8n error object\n// ============================================================\n\nconst err = $input.item.json;\n\nconst workflowName = err.workflow?.name || 'Unknown Workflow';\nconst executionId  = err.execution?.id || 'N/A';\nconst lastNode     = err.execution?.lastNodeExecuted || 'Unknown Node';\nconst errorMsg     = err.execution?.error?.message || 'No error message';\nconst errorStack   = err.execution?.error?.stack || '';\nconst timestamp    = new Date().toISOString();\n\n// Determine severity\nlet severity = 'WARNING';\nif (errorMsg.toLowerCase().includes('rate limit')) severity = 'INFO';\nif (errorMsg.toLowerCase().includes('unauthorized')) severity = 'CRITICAL';\nif (errorMsg.toLowerCase().includes('quota')) severity = 'CRITICAL';\n\nreturn [{\n  json: {\n    workflowName,\n    executionId,\n    lastNode,\n    errorMsg,\n    errorStack: errorStack.substring(0, 500),\n    severity,\n    timestamp\n  }\n}];"
       },
+      "id": "c1b2c3d4-0002-4000-8000-000000000002",
       "name": "Format Error",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -19,10 +21,16 @@
     },
     {
       "parameters": {
-        "channel": "#n8n-errors",
-        "text": ":x: *n8n Workflow Error — {{ $json.severity }}*\n\n*Workflow:* {{ $json.workflowName }}\n*Failed Node:* {{ $json.lastNode }}\n*Execution ID:* {{ $json.executionId }}\n*Error:* `{{ $json.errorMsg }}`\n*Time:* {{ $json.timestamp }}\n\n:wrench: Fix it at: https://your-n8n-url.com/execution/{{ $json.executionId }}",
+        "resource": "message",
+        "channel": {
+          "value": "tharunkumar1909",
+          "__rl": true,
+          "mode": "name"
+        },
+        "text": ":x: *n8n Workflow Error — {{ $json.severity }}*\n\n*Workflow:* {{ $json.workflowName }}\n*Failed Node:* {{ $json.lastNode }}\n*Execution ID:* {{ $json.executionId }}\n*Error:* `{{ $json.errorMsg }}`\n*Time:* {{ $json.timestamp }}\n\n:wrench: Check execution history in n8n for details.",
         "otherOptions": {}
       },
+      "id": "c1b2c3d4-0003-4000-8000-000000000003",
       "name": "Slack Error Alert",
       "type": "n8n-nodes-base.slack",
       "typeVersion": 2,
@@ -55,6 +63,7 @@
           }
         }
       },
+      "id": "c1b2c3d4-0004-4000-8000-000000000004",
       "name": "Log Error to Sheets",
       "type": "n8n-nodes-base.googleSheets",
       "typeVersion": 4,
@@ -79,7 +88,10 @@
     }
   },
   "settings": {
-    "executionOrder": "v1"
+    "executionOrder": "v1",
+    "saveManualExecutions": true
   },
+  "pinData": {},
+  "staticData": null,
   "tags": ["error-handling", "monitoring"]
 }

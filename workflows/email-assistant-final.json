@@ -19,6 +19,7 @@
         "simple": false,
         "options": {}
       },
+      "id": "a1b2c3d4-0001-4000-8000-000000000001",
       "name": "Gmail Trigger",
       "type": "n8n-nodes-base.gmailTrigger",
       "typeVersion": 1,
@@ -35,6 +36,7 @@
         "operation": "markAsRead",
         "messageId": "={{ $json.id }}"
       },
+      "id": "a1b2c3d4-0002-4000-8000-000000000002",
       "name": "Mark as Read",
       "type": "n8n-nodes-base.gmail",
       "typeVersion": 2,
@@ -50,6 +52,7 @@
       "parameters": {
         "jsCode": "// Clean and extract email fields\nconst email = $input.item.json;\n\nfunction stripHtml(html) {\n  return (html || '')\n    .replace(/<style[^>]*>[\\s\\S]*?<\\/style>/gi, '')\n    .replace(/<script[^>]*>[\\s\\S]*?<\\/script>/gi, '')\n    .replace(/<[^>]+>/g, ' ')\n    .replace(/&nbsp;/g, ' ')\n    .replace(/&amp;/g, '&')\n    .replace(/\\s+/g, ' ')\n    .trim();\n}\n\nconst rawBody = email.text || email.html || email.snippet || '';\nconst cleanBody = stripHtml(rawBody).substring(0, 2000);\n\nreturn [{\n  json: {\n    messageId: email.id,\n    threadId: email.threadId,\n    from: email.from || '',\n    subject: email.subject || '(no subject)',\n    body: cleanBody || '(no body)',\n    snippet: email.snippet || '',\n    date: email.date || new Date().toISOString(),\n    receivedAt: new Date().toISOString()\n  }\n}];"
       },
+      "id": "a1b2c3d4-0003-4000-8000-000000000003",
       "name": "Preprocess Email",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -57,38 +60,32 @@
     },
     {
       "parameters": {
-        "model": "llama-3.3-70b-versatile",
-        "messages": {
-          "values": [
-            {
-              "role": "system",
-              "content": "You are an email classification assistant for a SaaS startup.\n\nClassify the incoming email into exactly one category:\n- urgent: needs response within 1 hour (outages, legal, angry enterprise customer threatening churn)\n- support: customer needs help (setup, bugs, how-to, billing)\n- sales: prospect or partner interest (pricing, demo request, partnership)\n- spam: no action needed (newsletters, marketing, automated notifications)\n\nAlso extract:\n- sentiment: positive | neutral | negative\n- summary: 1-2 sentences describing the core message\n- suggested_action: one concrete action the team should take\n- confidence: 0.0 to 1.0\n\nRules:\n1. If urgent vs support, prefer urgent — over-escalation is safer.\n2. If email is automated (unsubscribe link, receipt), classify as spam.\n3. Low confidence (<0.6) for ambiguous or very short emails.\n\nYOU MUST RESPOND ONLY WITH A RAW JSON OBJECT. NO TEXT BEFORE OR AFTER. START WITH { END WITH }.\n\nSchema: {\"category\":\"urgent|support|sales|spam\",\"sentiment\":\"positive|neutral|negative\",\"summary\":\"string\",\"suggested_action\":\"string\",\"confidence\":0.95}"
-            },
-            {
-              "role": "user",
-              "content": "From: {{ $json.from }}\nSubject: {{ $json.subject }}\nBody: {{ $json.body }}"
-            }
-          ]
-        },
-        "options": {
-          "temperature": 0.1
-        }
+        "method": "POST",
+        "url": "https://api.groq.com/openai/v1/chat/completions",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": \"llama-3.3-70b-versatile\",\n  \"temperature\": 0.1,\n  \"messages\": [\n    {\n      \"role\": \"system\",\n      \"content\": \"You are an email classification assistant for a SaaS startup.\\n\\nClassify the incoming email into exactly one category:\\n- urgent: needs response within 1 hour (outages, legal, angry enterprise customer threatening churn)\\n- support: customer needs help (setup, bugs, how-to, billing)\\n- sales: prospect or partner interest (pricing, demo request, partnership)\\n- spam: no action needed (newsletters, marketing, automated notifications)\\n\\nAlso extract:\\n- sentiment: positive | neutral | negative\\n- summary: 1-2 sentences describing the core message\\n- suggested_action: one concrete action the team should take\\n- confidence: 0.0 to 1.0\\n\\nRules:\\n1. If urgent vs support, prefer urgent — over-escalation is safer.\\n2. If email is automated (unsubscribe link, receipt), classify as spam.\\n3. Low confidence (<0.6) for ambiguous or very short emails.\\n\\nYOU MUST RESPOND ONLY WITH A RAW JSON OBJECT. NO TEXT BEFORE OR AFTER. START WITH { END WITH }.\\n\\nSchema: {\\\"category\\\":\\\"urgent|support|sales|spam\\\",\\\"sentiment\\\":\\\"positive|neutral|negative\\\",\\\"summary\\\":\\\"string\\\",\\\"suggested_action\\\":\\\"string\\\",\\\"confidence\\\":0.95}\"\n    },\n    {\n      \"role\": \"user\",\n      \"content\": \"From: {{ $json.from }}\\nSubject: {{ $json.subject }}\\nBody: {{ $json.body }}\"\n    }\n  ]\n}",
+        "options": {}
       },
+      "id": "a1b2c3d4-0004-4000-8000-000000000004",
       "name": "Groq AI Classify",
-      "type": "@n8n/n8n-nodes-langchain.openAi",
-      "typeVersion": 1,
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
       "position": [700, 300],
       "credentials": {
-        "openAiApi": {
+        "httpHeaderAuth": {
           "id": "REPLACE_WITH_YOUR_CREDENTIAL_ID",
-          "name": "Groq API"
+          "name": "Groq API Key"
         }
       }
     },
     {
       "parameters": {
-        "jsCode": "// Parse Groq AI response and merge with email data\nconst raw = $input.item.json.choices?.[0]?.message?.content || '{}';\n\n// Strip any markdown fences if present\nconst cleaned = raw.replace(/```json\\n?/g, '').replace(/```\\n?/g, '').trim();\n\nlet parsed;\ntry {\n  parsed = JSON.parse(cleaned);\n} catch (e) {\n  parsed = {\n    category: 'unknown',\n    sentiment: 'neutral',\n    summary: 'AI parsing failed — manual review needed',\n    suggested_action: 'Review email manually in Gmail',\n    confidence: 0\n  };\n}\n\n// Get original email data from Preprocess node\nconst upstream = $('Preprocess Email').item.json;\n\n// Force category to lowercase for consistent routing\nconst category = (parsed.category || 'unknown').toLowerCase().trim();\n\nreturn [{\n  json: {\n    messageId: upstream.messageId,\n    threadId: upstream.threadId,\n    from: upstream.from,\n    subject: upstream.subject,\n    body: upstream.body,\n    date: upstream.date,\n    receivedAt: upstream.receivedAt,\n    category: category,\n    sentiment: (parsed.sentiment || 'neutral').toLowerCase(),\n    summary: parsed.summary || '',\n    suggested_action: parsed.suggested_action || '',\n    confidence: parsed.confidence || 0,\n    processedAt: new Date().toISOString()\n  }\n}];"
+        "jsCode": "// Parse Groq AI response and merge with email data\nconst raw = $input.item.json.choices?.[0]?.message?.content || '{}';\n\n// Strip any markdown fences if present\nlet cleaned = raw.replace(/```json\\n?/g, '').replace(/```\\n?/g, '').trim();\n\n// Try to extract JSON object if surrounded by text\nif (!cleaned.startsWith('{')) {\n  const match = cleaned.match(/\\{[\\s\\S]*\\}/);\n  if (match) cleaned = match[0];\n}\n\nlet parsed;\ntry {\n  parsed = JSON.parse(cleaned);\n} catch (e) {\n  parsed = {\n    category: 'unknown',\n    sentiment: 'neutral',\n    summary: 'AI parsing failed — manual review needed',\n    suggested_action: 'Review email manually in Gmail',\n    confidence: 0\n  };\n}\n\n// Get original email data from Preprocess node\nconst upstream = $('Preprocess Email').item.json;\n\n// Force category to lowercase for consistent routing\nconst category = (parsed.category || 'unknown').toLowerCase().trim();\n\nreturn [{\n  json: {\n    messageId: upstream.messageId,\n    threadId: upstream.threadId,\n    from: upstream.from,\n    subject: upstream.subject,\n    body: upstream.body,\n    date: upstream.date,\n    receivedAt: upstream.receivedAt,\n    category: category,\n    sentiment: (parsed.sentiment || 'neutral').toLowerCase(),\n    summary: parsed.summary || '',\n    suggested_action: parsed.suggested_action || '',\n    confidence: parsed.confidence || 0,\n    processedAt: new Date().toISOString()\n  }\n}];"
       },
+      "id": "a1b2c3d4-0005-4000-8000-000000000005",
       "name": "Parse AI Response",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -177,8 +174,11 @@
             }
           ]
         },
-        "options": {}
+        "options": {
+          "fallbackOutput": "extra"
+        }
       },
+      "id": "a1b2c3d4-0006-4000-8000-000000000006",
       "name": "Route by Category",
       "type": "n8n-nodes-base.switch",
       "typeVersion": 3,
@@ -195,6 +195,7 @@
         "text": ":rotating_light: *URGENT EMAIL*\n\n*From:* {{ $json.from }}\n*Subject:* {{ $json.subject }}\n*Sentiment:* {{ $json.sentiment }}\n*Summary:* {{ $json.summary }}\n*Action needed:* {{ $json.suggested_action }}\n*Confidence:* {{ $json.confidence }}\n\n:point_right: Reply within 1 hour!",
         "otherOptions": {}
       },
+      "id": "a1b2c3d4-0007-4000-8000-000000000007",
       "name": "Slack Urgent Alert",
       "type": "n8n-nodes-base.slack",
       "typeVersion": 2,
@@ -208,31 +209,24 @@
     },
     {
       "parameters": {
-        "model": "llama-3.3-70b-versatile",
-        "messages": {
-          "values": [
-            {
-              "role": "system",
-              "content": "You are a friendly, professional customer support agent.\n\nWrite a helpful reply to the customer's email. Rules:\n1. Address them by first name if available\n2. Acknowledge their specific issue\n3. Provide a clear, actionable solution or next step\n4. Be concise — 3-5 sentences max\n5. End with an open offer to help further\n6. Sign off as 'The Support Team'\n\nOutput reply text only. No subject line, no metadata."
-            },
-            {
-              "role": "user",
-              "content": "Customer email:\nFrom: {{ $json.from }}\nSubject: {{ $json.subject }}\nBody: {{ $json.body }}\n\nIssue summary: {{ $json.summary }}"
-            }
-          ]
-        },
-        "options": {
-          "temperature": 0.7
-        }
+        "method": "POST",
+        "url": "https://api.groq.com/openai/v1/chat/completions",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": \"llama-3.3-70b-versatile\",\n  \"temperature\": 0.7,\n  \"messages\": [\n    {\n      \"role\": \"system\",\n      \"content\": \"You are a friendly, professional customer support agent.\\n\\nWrite a helpful reply to the customer's email. Rules:\\n1. Address them by first name if available\\n2. Acknowledge their specific issue\\n3. Provide a clear, actionable solution or next step\\n4. Be concise — 3-5 sentences max\\n5. End with an open offer to help further\\n6. Sign off as 'The Support Team'\\n\\nOutput reply text only. No subject line, no metadata.\"\n    },\n    {\n      \"role\": \"user\",\n      \"content\": \"Customer email:\\nFrom: {{ $json.from }}\\nSubject: {{ $json.subject }}\\nBody: {{ $json.body }}\\n\\nIssue summary: {{ $json.summary }}\"\n    }\n  ]\n}",
+        "options": {}
       },
+      "id": "a1b2c3d4-0008-4000-8000-000000000008",
       "name": "Generate Draft Reply",
-      "type": "@n8n/n8n-nodes-langchain.openAi",
-      "typeVersion": 1,
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
       "position": [1350, 220],
       "credentials": {
-        "openAiApi": {
+        "httpHeaderAuth": {
           "id": "REPLACE_WITH_YOUR_CREDENTIAL_ID",
-          "name": "Groq API"
+          "name": "Groq API Key"
         }
       }
     },
@@ -245,6 +239,7 @@
           "sendReply": false
         }
       },
+      "id": "a1b2c3d4-0009-4000-8000-000000000009",
       "name": "Save Gmail Draft",
       "type": "n8n-nodes-base.gmail",
       "typeVersion": 2,
@@ -260,7 +255,7 @@
       "parameters": {
         "operation": "append",
         "documentId": {
-          "value": "1XG4ycJFPItZort_HHFj1UiXRcAcJfpFbg3PSbPbzOqs"
+          "value": "REPLACE_WITH_YOUR_SPREADSHEET_ID"
         },
         "sheetName": {
           "value": "Sales Leads"
@@ -278,6 +273,7 @@
           }
         }
       },
+      "id": "a1b2c3d4-0010-4000-8000-000000000010",
       "name": "Log Sales Lead",
       "type": "n8n-nodes-base.googleSheets",
       "typeVersion": 4,
@@ -295,6 +291,7 @@
         "messageId": "={{ $json.messageId }}",
         "labelIds": ["TRASH"]
       },
+      "id": "a1b2c3d4-0011-4000-8000-000000000011",
       "name": "Archive Spam",
       "type": "n8n-nodes-base.gmail",
       "typeVersion": 2,
@@ -317,6 +314,7 @@
         "text": ":question: *Manual Review Needed*\n\n*From:* {{ $json.from }}\n*Subject:* {{ $json.subject }}\n*AI Category:* {{ $json.category }} (confidence: {{ $json.confidence }})\n*Summary:* {{ $json.summary }}\n\nPlease review and classify manually.",
         "otherOptions": {}
       },
+      "id": "a1b2c3d4-0012-4000-8000-000000000012",
       "name": "Slack Manual Review",
       "type": "n8n-nodes-base.slack",
       "typeVersion": 2,
@@ -332,7 +330,7 @@
       "parameters": {
         "operation": "append",
         "documentId": {
-          "value": "1XG4ycJFPItZort_HHFj1UiXRcAcJfpFbg3PSbPbzOqs"
+          "value": "REPLACE_WITH_YOUR_SPREADSHEET_ID"
         },
         "sheetName": {
           "value": "Email Log"
@@ -353,6 +351,7 @@
           }
         }
       },
+      "id": "a1b2c3d4-0013-4000-8000-000000000013",
       "name": "Log to Google Sheets",
       "type": "n8n-nodes-base.googleSheets",
       "typeVersion": 4,
@@ -370,7 +369,7 @@
         "operation": "create",
         "databaseId": {
           "__rl": true,
-          "value": "34e7406c20878025a559d5fc4e53e0ce",
+          "value": "REPLACE_WITH_YOUR_NOTION_DATABASE_ID",
           "mode": "id"
         },
         "propertiesUi": {
@@ -398,6 +397,7 @@
           ]
         }
       },
+      "id": "a1b2c3d4-0014-4000-8000-000000000014",
       "name": "Notion Dashboard",
       "type": "n8n-nodes-base.notion",
       "typeVersion": 2,
@@ -427,11 +427,13 @@
       "main": [[{ "node": "Route by Category", "type": "main", "index": 0 }]]
     },
     "Route by Category": {
-      "urgent": [[{ "node": "Slack Urgent Alert", "type": "main", "index": 0 }]],
-      "support": [[{ "node": "Generate Draft Reply", "type": "main", "index": 0 }]],
-      "sales": [[{ "node": "Log Sales Lead", "type": "main", "index": 0 }]],
-      "spam": [[{ "node": "Archive Spam", "type": "main", "index": 0 }]],
-      "main": [[{ "node": "Slack Manual Review", "type": "main", "index": 0 }]]
+      "main": [
+        [{ "node": "Slack Urgent Alert", "type": "main", "index": 0 }],
+        [{ "node": "Generate Draft Reply", "type": "main", "index": 0 }],
+        [{ "node": "Log Sales Lead", "type": "main", "index": 0 }],
+        [{ "node": "Archive Spam", "type": "main", "index": 0 }],
+        [{ "node": "Slack Manual Review", "type": "main", "index": 0 }]
+      ]
     },
     "Slack Urgent Alert": {
       "main": [[{ "node": "Log to Google Sheets", "type": "main", "index": 0 }, { "node": "Notion Dashboard", "type": "main", "index": 0 }]]
@@ -457,6 +459,7 @@
     "saveManualExecutions": true,
     "callerPolicy": "workflowsFromSameOwner"
   },
+  "pinData": {},
   "staticData": null,
   "tags": ["email", "ai", "automation", "groq", "notion", "production"]
 }
